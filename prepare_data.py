@@ -5,15 +5,58 @@ import numpy as np
 import os
 import pickle
 import pandas as pd
-
+import yaml
+import re
 # from sklearn.feature_extraction import DictVectorizer
 from sklearn.feature_extraction import DictVectorizer, FeatureHasher
+
+
+columns_dtypes  = {
+    'DOLocationID': 'int64',
+    'PULocationID':'int64',
+    'RatecodeID': 'float64',
+    'VendorID': 'int64',
+    'congestion_surcharge': 'float64',
+    'extra': 'float64',
+    'fare_amount': 'float64',
+    'improvement_surcharge': 'float64',
+    'mta_tax': 'float64',
+    'passenger_count': 'float64',
+    'payment_type': 'float64',
+    'store_and_fwd_flag':  'O',
+    'tip_amount': 'float64',
+    'tolls_amount': 'float64',
+    'total_amount': 'float64',
+    'trip_distance': 'float64'
+    }
+
+
 
 # %%
 
 def dump_pickle(obj, filename: str):
     with open(filename, "wb") as f_out:
         return pickle.dump(obj, f_out)
+
+
+def apply_column_types(df: pd.DataFrame, config_path: str) -> pd.DataFrame:
+    # Load YAML config
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    
+    for pattern, dtype in config.get("columns", {}).items():
+        # Find all columns matching this regex
+        matching_cols = [c for c in df.columns if re.match(pattern, c)]
+        
+        for col in matching_cols:
+            # Apply the correct dtype
+            if dtype == "datetime":
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+            else:
+                df[col] = df[col].astype(dtype, errors="ignore")
+    
+    return df
+
 
 
 def _download_tlc_file(filename,
