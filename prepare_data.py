@@ -35,23 +35,28 @@ def _download_tlc_file(filename,
             print("Saving directory not provided, file not saved")
     return df
 
-def _processing(df, dv,  numeric_col_names = [], categorical_cols_names = [], training = False):
+def _processing(df,  numeric_col_names = [], categorical_cols_names = [], training = False):
    
 
     
     assert numeric_col_names or categorical_cols_names, "At least a list of numeric columns or a list of categorical columns must be given"
     
     #--1. Keep only list of categorical and numerical values
-    columns_to_keep = numeric_col_names.extend(categorical_cols_names)
+    columns_to_keep = numeric_col_names if numeric_col_names else categorical_cols_names
+    columns_to_keep.extend(categorical_cols_names)
+    print(numeric_col_names)
+    print(categorical_cols_names)
+    print(columns_to_keep)
     df = df[columns_to_keep]
 
     #--2. Restrict `trip_distance` column between limits: 
     #     for yellow  taxis between 0 and 20 miles
-    limit = df.trip_distance.describe(percentiles=['99%'])
-    df = df[(df.trip_distance >= 1.0) & (df.trip_distance < df.trip_distance )]
+    if 'trip_distance' in df.columns:
+        limit = df.trip_distance.describe(percentiles=['99%'])
+        df = df[(df.trip_distance >= 1.0) & (df.trip_distance < df.trip_distance )]
    
     #--3. Create feature duration
-    df['duration'] = df['tpep_dropoff_datetime'] - df['tpep_pickup_datetime'] 
+    df['duration'] = df['lpep_dropoff_datetime'] - df['lpep_pickup_datetime'] 
 
     #--4. Create combined feature pickup-droppoff
     df['PU_DO'] = df['PULocationID'].astype(str) + '_' + df['DOLocationID'].astype(str)
@@ -60,6 +65,7 @@ def _processing(df, dv,  numeric_col_names = [], categorical_cols_names = [], tr
     # fit_transf = True if training else False
     # X, dv = _encoding(df, dv, columns_to_encode = None, fit_transf=fit_transf)
     # return X,dv
+    return df
 
 
 def _encoding(df: pd.DataFrame, dv, columns_to_encode = None, 
