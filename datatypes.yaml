@@ -1,8 +1,12 @@
 
 columns:
     "VendorID": "int32"
-    ".*_pickup_datetime": "datetime64"
-    ".*_dropoff_datetime": "datetime64"
+    # ".*_pickup_datetime": "datetime64"
+    # ".*_dropoff_datetime": "datetime64"
+    "lpep_pickup_datetime": "datetime64"
+    "lpep_dropoff_datetime": "datetime64"
+    "tpep_pickup_datetime": "datetime64"
+    "tpep_dropoff_datetime": "datetime64"
     "passenger_count": "float64"
     "trip_distance": "float64"
     "RatecodeID": "float64"
@@ -20,3 +24,16 @@ columns:
     "congestion_surcharge": "float64"
     "Airport_fee": "float64"
     "cbd_congestion_fee": "float64"
+
+
+# numeric_columns: ["PULocationID", "DOLocationID", "trip_distance"]
+
+columns_to_keep: [
+    "PULocationID",
+    "DOLocationID",
+    "trip_distance",
+    "lpep_dropoff_datetime",
+    "lpep_pickup_datetime",
+    "tpep_pickup_datetime",
+    "tpep_dropoff_datetime"
+    ]

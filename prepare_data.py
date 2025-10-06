@@ -32,30 +32,53 @@ columns_dtypes  = {
 
 
 
-# %%
+#%%
 
 def dump_pickle(obj, filename: str):
     with open(filename, "wb") as f_out:
         return pickle.dump(obj, f_out)
 
 
+# def apply_column_types(df: pd.DataFrame, config_path: str) -> pd.DataFrame:
+#     # Load YAML config
+#     with open(config_path) as f:
+#         config = yaml.safe_load(f)
+    
+#     for pattern, dtype in config.get("columns", {}).items():
+#         # Find all columns matching this regex
+#         matching_cols = [c for c in df.columns if re.match(pattern, c)]
+        
+#         for col in matching_cols:
+#             # Apply the correct dtype
+#             if dtype == "datetime":
+#                 df[col] = pd.to_datetime(df[col], errors="coerce")
+#             else:
+#                 df[col] = df[col].astype(dtype, errors="ignore")
+    
+#     return df
+
 def apply_column_types(df: pd.DataFrame, config_path: str) -> pd.DataFrame:
+    
     # Load YAML config
     with open(config_path) as f:
         config = yaml.safe_load(f)
     
-    for pattern, dtype in config.get("columns", {}).items():
-        # Find all columns matching this regex
-        matching_cols = [c for c in df.columns if re.match(pattern, c)]
-        
-        for col in matching_cols:
+    for var_name, dtype in config.get("columns", {}).items():
+        variables =  [c for c in df.columns if re.match(var_name, c)]
+        for var in variables:
             # Apply the correct dtype
+            if df[var].dtype != dtype:
+                print(f"expected dtype: {dtype}; actual dtype: {df[var].dtype}")
+                df[var] = df[var].astype(dtype, errors="ignore")
             if dtype == "datetime":
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-            else:
-                df[col] = df[col].astype(dtype, errors="ignore")
+                print(f"the column {var} is type {df[var].dtype}")
+                df[var] = pd.to_datetime(df[var], errors="coerce")
+                print(f"column {var} converted to {df[var].dtype}")
+            # else:
+            #     df[col] = df[col].astype(dtype, errors="ignore")
     
     return df
+
 
 
 
@@ -95,8 +118,8 @@ def _processing(df,  numeric_col_names = [], categorical_cols_names = [], traini
     #--2. Restrict `trip_distance` column between limits: 
     #     for yellow  taxis between 0 and 20 miles
     if 'trip_distance' in df.columns:
-        limit = df.trip_distance.describe(percentiles=['99%'])
-        df = df[(df.trip_distance >= 1.0) & (df.trip_distance < df.trip_distance )]
+        limit = df.trip_distance.describe(percentiles=[0.99])
+        df = df[(df.trip_distance >= 1.0) & (df.trip_distance < limit )]
    
     #--3. Create feature duration
     df['duration'] = df['lpep_dropoff_datetime'] - df['lpep_pickup_datetime'] 
@@ -198,4 +221,58 @@ def download_tlc_data(start_date, end_date,
 
 
 #%%
+if __name__ == "__main__":
+    filename = "/home/simona/Documents/Portfolio/NYTraffic/data/green_tripdata_2021-01.parquet"
+    config_path = "/home/simona/Documents/Portfolio/NYTraffic/datatypes.yaml"
+    
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    
+    dftest = pd.read_parquet(filename)
+    # numeric_columns = config.get("numeric_columns") if "numeric_columns" in config.keys() else []
+    # categorical_columns = config.get("categorical_columns") if "categorical_columns" in config.keys() else []
+ 
+    
+    dftest_2 = apply_column_types(dftest, config_path)
+    
+    #-- PREPROCESSING
+    columns_to_keep = config.get("columns_to_keep")
+    if columns_to_keep:
+        columns_to_keep = [col for col in columns_to_keep if col in dftest_2.columns]
+        dftest_2 = dftest_2[columns_to_keep].copy()
 
+    # dftest_2['duration'] = dftest_2['lpep_dropoff_datetime'] - dftest_2['lpep_pickup_datetime'] 
+    # dftest_2['duration'] = dftest_2['duration'].apply(lambda x:x.total_seconds()/60)
+
+
+    # limit_duartion = dftest_2.duration.describe(percentiles=[0.99])['99%']
+    limit_dist = dftest_2.trip_distance.describe(percentiles=[0.99])['99%']
+    dftest_2 = dftest_2[(dftest_2.trip_distance >= 1.0) & (dftest_2.trip_distance < limit_dist )]
+
+    dftest_2['PU_DO'] = dftest_2['PULocationID'].astype(str) + '_' + dftest_2['DOLocationID'].astype(str)
+
+    # -- ENCODING
+
+
+# %%
+categorical_columns = [c for c in dftest_2.columns if dftest_2[c].dtype=='O']
+column_to_encode=['PU_DO']
+training = True
+# encoder_params = {'n_features':32}
+# encoder = FeatureHasher(**encoder_params)
+
+hasher = FeatureHasher(n_features=32, input_type='string')  # You can set n_features as needed
+hashed_features = hasher.transform([[val] for val in dftest_2['PU_DO'].astype(str)])
+# Convert hashed features to a DataFrame
+hashed_df = pd.DataFrame(hashed_features.toarray(), 
+                         columns=[f'PU_DO_hash_{i}' for i in range(hashed_features.shape[1])],
+                         index=dftest_2.index)
+
+# Concatenate hashed features with the original DataFrame (drop PU_DO if you don't want the original)
+encoded_df = pd.concat([dftest_2.drop(columns=['PU_DO']), hashed_df], axis=1)
+
+encoded_df.head()
+
+
+
+# %%
