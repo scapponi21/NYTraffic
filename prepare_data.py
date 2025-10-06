@@ -60,43 +60,13 @@ def _download_tlc_file(filename,
             print("Saving directory not provided, file not saved")
     return df
 
-def _processing(df,  numeric_col_names = [], categorical_cols_names = [], training = False):
-   
-
-    
-    assert numeric_col_names or categorical_cols_names, "At least a list of numeric columns or a list of categorical columns must be given"
-    
-    #--1. Keep only list of categorical and numerical values
-    columns_to_keep = numeric_col_names if numeric_col_names else categorical_cols_names
-    columns_to_keep.extend(categorical_cols_names)
-    print(numeric_col_names)
-    print(categorical_cols_names)
-    print(columns_to_keep)
-    df = df[columns_to_keep]
-
-    #--2. Restrict `trip_distance` column between limits: 
-    #     for yellow  taxis between 0 and 20 miles
-    if 'trip_distance' in df.columns:
-        limit = df.trip_distance.describe(percentiles=[0.99])
-        df = df[(df.trip_distance >= 1.0) & (df.trip_distance < limit )]
-   
-    #--3. Create feature duration
-    df['duration'] = df['lpep_dropoff_datetime'] - df['lpep_pickup_datetime'] 
-
-    #--4. Create combined feature pickup-droppoff
-    df['PU_DO'] = df['PULocationID'].astype(str) + '_' + df['DOLocationID'].astype(str)
-
-     #--5. Encode categorical variables with DicVectorizer or
-    # fit_transf = True if training else False
-    # X, dv = _encoding(df, dv, columns_to_encode = None, fit_transf=fit_transf)
-    # return X,dv
-    return df
 
 
-def _encoding(df: pd.DataFrame, dv, columns_to_encode = None, 
+
+def _encoding_original(df: pd.DataFrame, dv, columns_to_encode = None, 
                     fit_transf = False):
 
-    # Assums columns have already been dropped
+    # Assumes columns have already been dropped
     # Checks that the columns of the dataframe are correct (optional???)
     # (if there are extracoulumn)
 
@@ -184,10 +154,14 @@ def _preprocessing(df, selected_features = None):
 
     return df
 
-def _encoding(df, n_features):
+def _encoding(df, n_features, training = False):
 
     encoder = FeatureHasher(n_features=n_features, input_type='string')  # You can set n_features as needed
-    encoded_features = encoder.transform([[val] for val in df['PU_DO'].astype(str)])
+    data = [[val] for val in df['PU_DO'].astype(str)] # Featurehasher expects lists
+    if training:
+        encoded_features = encoder.fit_transform(data)
+    else:
+        encoded_features = encoder.transform(data)
     # Convert hashed features to a DataFrame
     hashed_df = pd.DataFrame(encoded_features.toarray(), 
                             columns=[f'PU_DO_hash_{i}' for i in range(encoded_features.shape[1])],
@@ -195,7 +169,7 @@ def _encoding(df, n_features):
 
     # Concatenate hashed features with the original DataFrame (drop PU_DO if you don't want the original)
     encoded_df = pd.concat([df.drop(columns=['PU_DO']), hashed_df], axis=1)
-    return encoded_df
+    return encoded_df, encoder
 
 
 #%%
