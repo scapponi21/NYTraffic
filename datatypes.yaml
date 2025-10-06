@@ -32,8 +32,8 @@ columns_to_keep: [
     "PULocationID",
     "DOLocationID",
     "trip_distance",
-    "lpep_dropoff_datetime",
-    "lpep_pickup_datetime",
-    "tpep_pickup_datetime",
-    "tpep_dropoff_datetime"
+    # "lpep_dropoff_datetime",
+    # "lpep_pickup_datetime",
+    # "tpep_pickup_datetime",
+    # "tpep_dropoff_datetime"
     ]

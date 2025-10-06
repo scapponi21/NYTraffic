@@ -11,26 +11,6 @@ import re
 from sklearn.feature_extraction import DictVectorizer, FeatureHasher
 
 
-columns_dtypes  = {
-    'DOLocationID': 'int64',
-    'PULocationID':'int64',
-    'RatecodeID': 'float64',
-    'VendorID': 'int64',
-    'congestion_surcharge': 'float64',
-    'extra': 'float64',
-    'fare_amount': 'float64',
-    'improvement_surcharge': 'float64',
-    'mta_tax': 'float64',
-    'passenger_count': 'float64',
-    'payment_type': 'float64',
-    'store_and_fwd_flag':  'O',
-    'tip_amount': 'float64',
-    'tolls_amount': 'float64',
-    'total_amount': 'float64',
-    'trip_distance': 'float64'
-    }
-
-
 
 #%%
 
@@ -39,34 +19,15 @@ def dump_pickle(obj, filename: str):
         return pickle.dump(obj, f_out)
 
 
-# def apply_column_types(df: pd.DataFrame, config_path: str) -> pd.DataFrame:
-#     # Load YAML config
-#     with open(config_path) as f:
-#         config = yaml.safe_load(f)
-    
-#     for pattern, dtype in config.get("columns", {}).items():
-#         # Find all columns matching this regex
-#         matching_cols = [c for c in df.columns if re.match(pattern, c)]
-        
-#         for col in matching_cols:
-#             # Apply the correct dtype
-#             if dtype == "datetime":
-#                 df[col] = pd.to_datetime(df[col], errors="coerce")
-#             else:
-#                 df[col] = df[col].astype(dtype, errors="ignore")
-    
-#     return df
 
 def apply_column_types(df: pd.DataFrame, config_path: str) -> pd.DataFrame:
     
-    # Load YAML config
     with open(config_path) as f:
         config = yaml.safe_load(f)
     
     for var_name, dtype in config.get("columns", {}).items():
         variables =  [c for c in df.columns if re.match(var_name, c)]
         for var in variables:
-            # Apply the correct dtype
             if df[var].dtype != dtype:
                 print(f"expected dtype: {dtype}; actual dtype: {df[var].dtype}")
                 df[var] = df[var].astype(dtype, errors="ignore")
@@ -74,8 +35,6 @@ def apply_column_types(df: pd.DataFrame, config_path: str) -> pd.DataFrame:
                 print(f"the column {var} is type {df[var].dtype}")
                 df[var] = pd.to_datetime(df[var], errors="coerce")
                 print(f"column {var} converted to {df[var].dtype}")
-            # else:
-            #     df[col] = df[col].astype(dtype, errors="ignore")
     
     return df
 
@@ -154,17 +113,7 @@ def _encoding(df: pd.DataFrame, dv, columns_to_encode = None,
     return X, dv
 
 
-# def encoding_orig (df: pd.DataFrame, dv: DictVectorizer,
-#                 fit_dv: bool = False):
-#     df['PU_DO'] = df['PULocationID'] + '_' + df['DOLocationID']
-#     categorical = ['PU_DO']
-#     numerical = ['trip_distance']
-#     dicts = df[categorical + numerical].to_dict(orient='records')
-#     if fit_dv:
-#         X = dv.fit_transform(dicts)
-#     else:
-#         X = dv.transform(dicts)
-#     return X, dv
+
 
 def prepare_data():
     #--1 preprocess data  
@@ -215,9 +164,38 @@ def download_tlc_data(start_date, end_date,
                                 base_url=base_url,
                                 processing = True)
         
-
+#%%
+def _preprocessing(df, selected_features = None):
     
 
+    dist_cutoff = df.trip_distance.describe(percentiles=[0.99])['99%']
+    df = df[(df.trip_distance >= 1.0) & (df.trip_distance < dist_cutoff )].copy()
+
+    df['PU_DO'] = df['PULocationID'].astype(str) + '_' + df['DOLocationID'].astype(str)
+    df.drop(['PULocationID','DOLocationID'],axis=1, inplace=True)
+    PU_time_column = [c for c in df.columns if 'pickup_datetime' in c][0]
+    DO_time_column = [c for c in df.columns if 'dropoff_datetime' in c][0]
+    df['duration']  = df[DO_time_column]-df[PU_time_column]
+    df['duration'] = df['duration'].apply(lambda x:x.total_seconds()/60)
+    if selected_features:
+        selected_features = [col for col in selected_features if col in df.columns]
+        selected_features.extend(['PU_DO', 'duration'])
+        df = df[selected_features]
+
+    return df
+
+def _encoding(df, n_features):
+
+    encoder = FeatureHasher(n_features=n_features, input_type='string')  # You can set n_features as needed
+    encoded_features = encoder.transform([[val] for val in df['PU_DO'].astype(str)])
+    # Convert hashed features to a DataFrame
+    hashed_df = pd.DataFrame(encoded_features.toarray(), 
+                            columns=[f'PU_DO_hash_{i}' for i in range(encoded_features.shape[1])],
+                            index=df.index)
+
+    # Concatenate hashed features with the original DataFrame (drop PU_DO if you don't want the original)
+    encoded_df = pd.concat([df.drop(columns=['PU_DO']), hashed_df], axis=1)
+    return encoded_df
 
 
 #%%
@@ -228,31 +206,16 @@ if __name__ == "__main__":
     with open(config_path) as f:
         config = yaml.safe_load(f)
     
-    dftest = pd.read_parquet(filename)
-    # numeric_columns = config.get("numeric_columns") if "numeric_columns" in config.keys() else []
-    # categorical_columns = config.get("categorical_columns") if "categorical_columns" in config.keys() else []
- 
+    dftest = pd.read_parquet(filename) 
     
     dftest_2 = apply_column_types(dftest, config_path)
     
     #-- PREPROCESSING
     columns_to_keep = config.get("columns_to_keep")
-    if columns_to_keep:
-        columns_to_keep = [col for col in columns_to_keep if col in dftest_2.columns]
-        dftest_2 = dftest_2[columns_to_keep].copy()
-
-    # dftest_2['duration'] = dftest_2['lpep_dropoff_datetime'] - dftest_2['lpep_pickup_datetime'] 
-    # dftest_2['duration'] = dftest_2['duration'].apply(lambda x:x.total_seconds()/60)
-
-
-    # limit_duartion = dftest_2.duration.describe(percentiles=[0.99])['99%']
-    limit_dist = dftest_2.trip_distance.describe(percentiles=[0.99])['99%']
-    dftest_2 = dftest_2[(dftest_2.trip_distance >= 1.0) & (dftest_2.trip_distance < limit_dist )]
-
-    dftest_2['PU_DO'] = dftest_2['PULocationID'].astype(str) + '_' + dftest_2['DOLocationID'].astype(str)
+    dftest_2 = _preprocessing(dftest_2, selected_features = columns_to_keep)
 
     # -- ENCODING
-
+    dftest_2 =_encoding(dftest_2, n_features=32)
 
 # %%
 categorical_columns = [c for c in dftest_2.columns if dftest_2[c].dtype=='O']
