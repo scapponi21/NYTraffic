@@ -9,6 +9,7 @@ import yaml
 import re
 # from sklearn.feature_extraction import DictVectorizer
 from sklearn.feature_extraction import DictVectorizer, FeatureHasher
+from sklearn.preprocessing import OneHotEncoder
 
 
 
@@ -154,14 +155,12 @@ def _preprocessing(df, selected_features = None):
 
     return df
 
-def _encoding(df, n_features, training = False):
+def _encoding(df, n_features):
 
     encoder = FeatureHasher(n_features=n_features, input_type='string')  # You can set n_features as needed
     data = [[val] for val in df['PU_DO'].astype(str)] # Featurehasher expects lists
-    if training:
-        encoded_features = encoder.fit_transform(data)
-    else:
-        encoded_features = encoder.transform(data)
+    encoded_features = encoder.transform(data)
+   
     # Convert hashed features to a DataFrame
     hashed_df = pd.DataFrame(encoded_features.toarray(), 
                             columns=[f'PU_DO_hash_{i}' for i in range(encoded_features.shape[1])],
@@ -171,8 +170,83 @@ def _encoding(df, n_features, training = False):
     encoded_df = pd.concat([df.drop(columns=['PU_DO']), hashed_df], axis=1)
     return encoded_df, encoder
 
+def encode_and_concat(df, columns, encoder, drop_original=True, training = False):
+    """
+    Applies a scikit-learn encoder to specified columns and returns the DataFrame
+    with encoded features appended.
+    """
+    X = df[columns]
+    encoder_name = encoder.__class__.__name__
+
+    if encoder_name == "FeatureHasher":
+        if len(columns) == 1:
+            encoded = encoder.transform(X[columns[0]].astype(str).apply(lambda x: [x]))
+        else:
+            encoded = encoder.transform(X.astype(str).to_dict(orient="records"))
+        encoded_df = pd.DataFrame(encoded.toarray(),
+                                  columns=[f"{'_'.join(columns)}_hash_{i}" for i in range(encoded.shape[1])],
+                                  index=df.index)
+    elif encoder_name == "DictVectorizer":
+        # Convert DataFrame to list of dicts
+        encoded = encoder.fit_transform(X.astype(str).to_dict(orient="records"))
+        try:
+            feature_names = encoder.get_feature_names_out()
+        except Exception:
+            feature_names = [f"{col}_dv_{i}" for i in range(encoded.shape[1])]
+        encoded_df = pd.DataFrame(encoded, columns=feature_names, index=df.index)
+    else:
+        try:
+            encoded_arr = encoder.transform(X)
+        except AttributeError:
+            encoded_arr = encoder.fit_transform(X)
+        if hasattr(encoded_arr, "toarray"):  # sparse
+            encoded_arr = encoded_arr.toarray()
+        try:
+            col_names = encoder.get_feature_names_out(columns)
+        except Exception:
+            col_names = [f"{col}_enc_{i}" for col in columns for i in range(encoded_arr.shape[1] // len(columns))]
+        encoded_df = pd.DataFrame(encoded_arr, columns=col_names, index=df.index)
+    
+    if drop_original:
+        df_out = pd.concat([df.drop(columns=columns), encoded_df], axis=1)
+    else:
+        df_out = pd.concat([df, encoded_df], axis=1)
+    
+    return df_out
+#%%
+
+
+#--1. Load data from file: 
+    # TO DO: check if the data required is stored, if not download from link
+
+
+#--2.Preprocessing:
+#       -removing rows with `trip-distance in theleft or right tails
+#       -Combininig columns `PULocationID` and  `DOLocationID` and dropping original columns
+#       -Creating column `duration` (which is the target variable)
+#       -Dropping all the unnecessary columns
+     
+
+#--3 split data in training and test and  validation, based on dates entered if given, 
+#    otherwise last 20% of dates (YYY-MM-DD) as test data last 10% validation data.
+# 
+#--4 Encoding: 
+#       -Encode train data with fit_transform if applicable. 
+#       -Encode test and validation 
+# 
+# -- 5 Saving    
+#       -Create dest_path folder unless it already exists 
+#       -Save encoder and datasets
+
+_encoding
+#%%
+
+
 
 #%%
+
+
+
 if __name__ == "__main__":
     filename = "/home/simona/Documents/Portfolio/NYTraffic/data/green_tripdata_2021-01.parquet"
     config_path = "/home/simona/Documents/Portfolio/NYTraffic/datatypes.yaml"
@@ -188,28 +262,58 @@ if __name__ == "__main__":
     columns_to_keep = config.get("columns_to_keep")
     dftest_2 = _preprocessing(dftest_2, selected_features = columns_to_keep)
 
+    #--SPLITTING
+  
+
     # -- ENCODING
-    dftest_2 =_encoding(dftest_2, n_features=32)
-
-# %%
-categorical_columns = [c for c in dftest_2.columns if dftest_2[c].dtype=='O']
-column_to_encode=['PU_DO']
-training = True
-# encoder_params = {'n_features':32}
-# encoder = FeatureHasher(**encoder_params)
-
-hasher = FeatureHasher(n_features=32, input_type='string')  # You can set n_features as needed
-hashed_features = hasher.transform([[val] for val in dftest_2['PU_DO'].astype(str)])
-# Convert hashed features to a DataFrame
-hashed_df = pd.DataFrame(hashed_features.toarray(), 
-                         columns=[f'PU_DO_hash_{i}' for i in range(hashed_features.shape[1])],
-                         index=dftest_2.index)
-
-# Concatenate hashed features with the original DataFrame (drop PU_DO if you don't want the original)
-encoded_df = pd.concat([dftest_2.drop(columns=['PU_DO']), hashed_df], axis=1)
-
-encoded_df.head()
+    dftest_2, _ =_encoding(dftest_2, n_features=32)
 
 
 
 # %%
+
+#-- ENCODING GENERALIZED USING `encode_and_concat`
+
+# FeatureHasher example
+hasher = FeatureHasher(n_features=16, input_type='string')
+df_hashed = encode_and_concat(df, ['PU_DO'], hasher)
+
+# DictVectorizer example
+dv = DictVectorizer(sparse=False)
+df_dv = encode_and_concat(df, ['PU_DO'], dv)
+
+# OneHotEncoder example
+ohe = OneHotEncoder(sparse=False)
+df_ohe = encode_and_concat(df, ['PU_DO'], ohe)
+
+# %%
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+dataset = 'green'
+train_start = '2021-01-01'; train_end = '2021-07-31'
+train_start_date = datetime.strptime(train_start, '%Y-%m-%d')
+train_end_date = datetime.strptime(train_end, '%Y-%m-%d')
+if train_end_date.strftime('%Y-%m')  == train_start_date.strftime('%Y-%m'):
+    train_start_file= f"{dataset}_tripdata_{train_start_date.strftime('%Y-%m')}"
+else:
+    next_date = train_start_date.replace(day=1) 
+    dates_list =[]
+    while next_date <= train_end_date:
+        dates_list.append(next_date.strftime('%Y-%m'))
+        next_date += relativedelta(months = 1) 
+    files_list = [f"{dataset}_tripdata_{date}" for date in dates_list]
+
+
+# print(f"file ")
+
+# print(train_end_date - train_start_date)
+
+# print(train_start_date - timedelta(days=10)) 
+
+#%%
+
+from dateutil.relativedelta import relativedelta
+
+train_start_date = datetime.strptime('2020-11-06', '%Y-%m-%d')
+train_end_date = datetime.strptime('2021-02-03', '%Y-%m-%d')
+
